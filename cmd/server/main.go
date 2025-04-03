@@ -1,11 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -30,8 +33,36 @@ func main() {
 		log.Printf("couldn't create a channel")
 	}
 
-	playingState := routing.PlayingState{IsPaused: true}
-	pubsub.PublishJSON(channel, routing.ExchangePerilDirect, routing.PauseKey, playingState)
+	gamelogic.PrintServerHelp()
+
+	for {
+		input := gamelogic.GetInput()
+		if len(input) == 0 {
+			continue
+		}
+
+		if input[0] == "pause" {
+			fmt.Println("Sending pause message...")
+			playingState := routing.PlayingState{IsPaused: true}
+			pubsub.PublishJSON(channel, routing.ExchangePerilDirect, routing.PauseKey, playingState)
+		}
+
+		if input[0] == "resume" {
+			fmt.Println("Sending resume message...")
+			playingState := routing.PlayingState{IsPaused: false}
+			pubsub.PublishJSON(channel, routing.ExchangePerilDirect, routing.PauseKey, playingState)
+		}
+
+		if input[0] == "quit" {
+			fmt.Println("Exitting the server...")
+			break
+		}
+
+		if !slices.Contains([]string{"pause", "resume", "quit"}, input[0]) {
+			fmt.Printf("Command does not exist: %s", input[0])
+			continue
+		}
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
