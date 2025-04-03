@@ -6,6 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -23,9 +25,17 @@ func main() {
 	log.Println("Connection to rabbitMq server successfull!")
 	log.Println("Starting Peril server...")
 
+	channel, err := conn.Channel()
+	if err != nil {
+		log.Printf("couldn't create a channel")
+	}
+
+	playingState := routing.PlayingState{IsPaused: true}
+	pubsub.PublishJSON(channel, routing.ExchangePerilDirect, routing.PauseKey, playingState)
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
-	
+
 	log.Println("Peril server gracefully stopped.")
 }
