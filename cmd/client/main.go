@@ -33,17 +33,20 @@ func main() {
 		log.Printf("couldn't get client welcome message: %v", err)
 	}
 
-	pubsub.DeclareAndBind(
+	channel, _, err := pubsub.DeclareAndBind(
 		conn,
 		routing.ExchangePerilDirect,
 		fmt.Sprintf("%s.%s", routing.PauseKey, username),
 		routing.PauseKey,
 		0,
 	)
+	if err != nil {
+		log.Printf("couldn't declare and bind channel: %v", err)
+	}
 
 	gameState := gamelogic.NewGameState(username)
 
-	pubsub.SubscribeJSON(
+	err = pubsub.SubscribeJSON(
 		conn,
 		routing.ExchangePerilDirect,
 		fmt.Sprintf("%s.%s", routing.PauseKey, username),
@@ -51,6 +54,21 @@ func main() {
 		0,
 		handlerPause(gameState),
 	)
+	if err != nil {
+		log.Printf("couldn't subscribe to %s: %v", routing.ExchangePerilDirect, err)
+	}
+
+	pubsub.SubscribeJSON(
+		conn,
+		routing.ExchangePerilTopic,
+		fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username),
+		fmt.Sprintf("%s.*", routing.ArmyMovesPrefix),
+		0,
+		handlerMove(gameState),
+	)
+	if err != nil {
+		log.Printf("couldn't subscribe to %s: %v", routing.ExchangePerilTopic, err)
+	}
 
 	for {
 		input := gamelogic.GetInput()
@@ -72,10 +90,22 @@ func main() {
 				fmt.Println("invalid command arguments: move <location> <to>")
 			}
 
-			_, err := gameState.CommandMove(input)
+			armyMove, err := gameState.CommandMove(input)
 			if err != nil {
 				fmt.Printf("couldn't move: %v\n", err)
 			}
+
+			err = pubsub.PublishJSON(
+				channel,
+				routing.ExchangePerilTopic,
+				fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username),
+				armyMove,
+			)
+			if err != nil {
+				fmt.Printf("coudln't publish move: %v", err)
+			}
+
+			fmt.Println("move was published successfully")
 		}
 
 		if input[0] == "status" {
@@ -109,8 +139,15 @@ func main() {
 }
 
 func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
-	defer fmt.Println("> ")
 	return func(ps routing.PlayingState) {
+		defer fmt.Printf("> ")
 		gs.HandlePause(ps)
+	}
+}
+
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
+	return func(am gamelogic.ArmyMove) {
+		defer fmt.Printf("> ")
+		gs.HandleMove(am)
 	}
 }
