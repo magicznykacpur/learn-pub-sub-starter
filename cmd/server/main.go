@@ -28,9 +28,9 @@ func main() {
 	log.Println("Connection to rabbitMq server successfull!")
 	log.Println("Starting Peril server...")
 
-	channel, err := conn.Channel()
+	channel, _, err := pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, "game_logs.*", 1)
 	if err != nil {
-		log.Printf("couldn't create a channel")
+		log.Printf("couldn't declare and bind channel and queue: %v", err)
 	}
 
 	gamelogic.PrintServerHelp()

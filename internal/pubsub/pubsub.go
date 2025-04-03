@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -52,7 +53,7 @@ func DeclareAndBind(
 	}
 
 	if simpleQueueType == nonTransient {
-		queue, err = channel.QueueDeclare(queueName, false, false, false, false, nil)
+		queue, err = channel.QueueDeclare(queueName, true, false, false, false, nil)
 		if err != nil {
 			return nil, amqp.Queue{}, err
 		}
@@ -64,4 +65,39 @@ func DeclareAndBind(
 	}
 
 	return channel, queue, nil
+}
+
+func SubscribeJSON[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType queueType,
+	handler func(T),
+) error {
+	channel, queue, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
+	if err != nil {
+		return err
+	}
+
+	deliveryChannels, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for channel := range deliveryChannels {
+			var body T
+
+			err := json.Unmarshal(channel.Body, &body)
+			if err != nil {
+				fmt.Printf("cannot unmarshall delivery channel body: %v", err)
+			}
+
+			handler(body)
+			channel.Ack(false)
+		}
+	}()
+
+	return nil
 }

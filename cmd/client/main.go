@@ -43,6 +43,15 @@ func main() {
 
 	gameState := gamelogic.NewGameState(username)
 
+	pubsub.SubscribeJSON(
+		conn,
+		routing.ExchangePerilDirect,
+		fmt.Sprintf("%s.%s", routing.PauseKey, username),
+		routing.PauseKey,
+		0,
+		handlerPause(gameState),
+	)
+
 	for {
 		input := gamelogic.GetInput()
 
@@ -97,4 +106,11 @@ func main() {
 	<-sigChan
 
 	log.Println("Peril client gracefully stopped.")
+}
+
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
+	defer fmt.Println("> ")
+	return func(ps routing.PlayingState) {
+		gs.HandlePause(ps)
+	}
 }
