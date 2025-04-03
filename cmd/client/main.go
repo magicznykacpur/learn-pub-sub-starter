@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
@@ -39,6 +40,57 @@ func main() {
 		routing.PauseKey,
 		0,
 	)
+
+	gameState := gamelogic.NewGameState(username)
+
+	for {
+		input := gamelogic.GetInput()
+
+		if input[0] == "spawn" {
+			if len(input) != 3 {
+				fmt.Println("invalid command arguments: spawn <location> <type>")
+				continue
+			}
+
+			err := gameState.CommandSpawn(input)
+			if err != nil {
+				fmt.Printf("couldn't spawn unit: %v\n", err)
+			}
+		}
+
+		if input[0] == "move" {
+			if len(input) != 3 {
+				fmt.Println("invalid command arguments: move <location> <to>")
+			}
+
+			_, err := gameState.CommandMove(input)
+			if err != nil {
+				fmt.Printf("couldn't move: %v\n", err)
+			}
+		}
+
+		if input[0] == "status" {
+			gameState.CommandStatus()
+		}
+
+		if input[0] == "help" {
+			gamelogic.PrintClientHelp()
+		}
+
+		if input[0] == "spam" {
+			fmt.Println("Spamming is not allowed yet!")
+		}
+
+		if input[0] == "quit" {
+			gamelogic.PrintQuit()
+			break
+		}
+
+		if !slices.Contains([]string{"spawn", "move", "status", "help", "spam", "quit"}, input[0]) {
+			fmt.Printf("Unknown command: %s\n", input[0])
+			continue
+		}
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
