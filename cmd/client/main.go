@@ -138,16 +138,23 @@ func main() {
 	log.Println("Peril client gracefully stopped.")
 }
 
-func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
-	return func(ps routing.PlayingState) {
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.AckType {
+	return func(ps routing.PlayingState) pubsub.AckType {
 		defer fmt.Printf("> ")
 		gs.HandlePause(ps)
+		return pubsub.Ack
 	}
 }
 
-func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
-	return func(am gamelogic.ArmyMove) {
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.AckType {
+	return func(am gamelogic.ArmyMove) pubsub.AckType {
 		defer fmt.Printf("> ")
-		gs.HandleMove(am)
+		outcome := gs.HandleMove(am)
+
+		if outcome == gamelogic.MoveOutComeSafe || outcome == gamelogic.MoveOutcomeMakeWar {
+			return pubsub.Ack
+		}
+
+		return pubsub.NackDiscard
 	}
 }

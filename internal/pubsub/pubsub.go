@@ -67,35 +67,55 @@ func DeclareAndBind(
 	return channel, queue, nil
 }
 
+type AckType int
+
+const (
+	Ack AckType = iota
+	NackRequeue
+	NackDiscard
+)
+
+
 func SubscribeJSON[T any](
 	conn *amqp.Connection,
 	exchange,
 	queueName,
 	key string,
 	simpleQueueType queueType,
-	handler func(T),
+	handler func(T) AckType,
 ) error {
 	channel, queue, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
 	if err != nil {
 		return err
 	}
 
-	deliveryChannels, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
+	messages, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
 	if err != nil {
 		return err
 	}
 
 	go func() {
-		for channel := range deliveryChannels {
+		for message := range messages {
 			var body T
 
-			err := json.Unmarshal(channel.Body, &body)
+			err := json.Unmarshal(message.Body, &body)
 			if err != nil {
-				fmt.Printf("cannot unmarshall delivery channel body: %v", err)
+				fmt.Printf("cannot unmarshall delivery message body: %v", err)
 			}
 
-			handler(body)
-			channel.Ack(false)
+			ackType := handler(body)
+
+			if ackType == Ack {
+				message.Ack(false)
+			}
+
+			if ackType == NackRequeue {
+				message.Nack(false, true)
+			}
+
+			if ackType == NackDiscard {
+				message.Nack(false, false)
+			}
 		}
 	}()
 
