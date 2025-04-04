@@ -58,16 +58,28 @@ func main() {
 		log.Printf("couldn't subscribe to %s: %v", routing.ExchangePerilDirect, err)
 	}
 
-	pubsub.SubscribeJSON(
+	err = pubsub.SubscribeJSON(
 		conn,
 		routing.ExchangePerilTopic,
 		fmt.Sprintf("%s.%s", routing.ArmyMovesPrefix, username),
 		fmt.Sprintf("%s.*", routing.ArmyMovesPrefix),
 		0,
-		handlerMove(gameState),
+		handlerMove(gameState, channel),
 	)
 	if err != nil {
 		log.Printf("couldn't subscribe to %s: %v", routing.ExchangePerilTopic, err)
+	}
+
+	err = pubsub.SubscribeJSON(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.WarRecognitionsPrefix,
+		fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix),
+		0,
+		handlerWar(gameState),
+	)
+	if err != nil {
+		log.Printf("couldnt subscribe to %s: %v", fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix), err)
 	}
 
 	for {
@@ -146,15 +158,62 @@ func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.Ack
 	}
 }
 
-func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.AckType {
+func handlerMove(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.ArmyMove) pubsub.AckType {
 	return func(am gamelogic.ArmyMove) pubsub.AckType {
 		defer fmt.Printf("> ")
 		outcome := gs.HandleMove(am)
 
-		if outcome == gamelogic.MoveOutComeSafe || outcome == gamelogic.MoveOutcomeMakeWar {
+		if outcome == gamelogic.MoveOutComeSafe {
 			return pubsub.Ack
 		}
 
+		if outcome == gamelogic.MoveOutcomeMakeWar {
+			err := pubsub.PublishJSON(
+				channel,
+				routing.ExchangePerilTopic,
+				fmt.Sprintf("%s.%s", routing.WarRecognitionsPrefix, gs.Player.Username),
+				gamelogic.RecognitionOfWar{
+					Attacker: am.Player,
+					Defender: gs.Player,
+				},
+			)
+
+			if err != nil {
+				return pubsub.NackRequeue
+			}
+			return pubsub.Ack
+		}
+
+		return pubsub.NackDiscard
+	}
+}
+
+func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+	return func(rw gamelogic.RecognitionOfWar) pubsub.AckType {
+		defer fmt.Printf("> ")
+		warOutcome, _, _ := gs.HandleWar(rw)
+
+		if warOutcome == gamelogic.WarOutcomeNotInvolved {
+			return pubsub.NackRequeue
+		}
+
+		if warOutcome == gamelogic.WarOutcomeNoUnits {
+			return pubsub.NackDiscard
+		}
+
+		if warOutcome == gamelogic.WarOutcomeOpponentWon {
+			return pubsub.Ack
+		}
+
+		if warOutcome == gamelogic.WarOutcomeYouWon {
+			return pubsub.Ack
+		}
+
+		if warOutcome == gamelogic.WarOutcomeDraw {
+			return pubsub.Ack
+		}
+
+		fmt.Println("war outcome undefined")
 		return pubsub.NackDiscard
 	}
 }
