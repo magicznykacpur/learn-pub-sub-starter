@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"slices"
 	"syscall"
+	"time"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -76,7 +77,7 @@ func main() {
 		routing.WarRecognitionsPrefix,
 		fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix),
 		0,
-		handlerWar(gameState),
+		handlerWar(gameState, channel),
 	)
 	if err != nil {
 		log.Printf("couldnt subscribe to %s: %v", fmt.Sprintf("%s.*", routing.WarRecognitionsPrefix), err)
@@ -188,10 +189,10 @@ func handlerMove(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.
 	}
 }
 
-func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+func handlerWar(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.AckType {
 	return func(rw gamelogic.RecognitionOfWar) pubsub.AckType {
 		defer fmt.Printf("> ")
-		warOutcome, _, _ := gs.HandleWar(rw)
+		warOutcome, winner, loser := gs.HandleWar(rw)
 
 		if warOutcome == gamelogic.WarOutcomeNotInvolved {
 			return pubsub.NackRequeue
@@ -202,14 +203,56 @@ func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub
 		}
 
 		if warOutcome == gamelogic.WarOutcomeOpponentWon {
+			err := pubsub.PublishGob(
+				channel,
+				routing.ExchangePerilTopic,
+				fmt.Sprintf("%s.%s", routing.GameLogSlug, rw.Attacker.Username),
+				routing.GameLog{
+					CurrentTime: time.Now(),
+					Message:     fmt.Sprintf("%s won a war against %s", winner, loser),
+					Username:    winner,
+				},
+			)
+			if err != nil {
+				return pubsub.NackRequeue
+			}
+
 			return pubsub.Ack
 		}
 
 		if warOutcome == gamelogic.WarOutcomeYouWon {
+			err := pubsub.PublishGob(
+				channel,
+				routing.ExchangePerilTopic,
+				fmt.Sprintf("%s.%s", routing.GameLogSlug, rw.Attacker.Username),
+				routing.GameLog{
+					CurrentTime: time.Now(),
+					Message:     fmt.Sprintf("%s won a war against %s", winner, loser),
+					Username:    winner,
+				},
+			)
+			if err != nil {
+				return pubsub.NackRequeue
+			}
+
 			return pubsub.Ack
 		}
 
 		if warOutcome == gamelogic.WarOutcomeDraw {
+			err := pubsub.PublishGob(
+				channel,
+				routing.ExchangePerilTopic,
+				fmt.Sprintf("%s.%s", routing.GameLogSlug, rw.Attacker.Username),
+				routing.GameLog{
+					CurrentTime: time.Now(),
+					Message:     fmt.Sprintf("A war between %s and %s resulter in a draw", winner, loser),
+					Username:    rw.Attacker.Username,
+				},
+			)
+			if err != nil {
+				return pubsub.NackRequeue
+			}
+
 			return pubsub.Ack
 		}
 

@@ -35,6 +35,18 @@ func main() {
 
 	gamelogic.PrintServerHelp()
 
+	err = pubsub.SubscribeGOB(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		fmt.Sprintf("%s.*", routing.GameLogSlug),
+		1,
+		logHandler(),
+	)
+	if err != nil {
+		log.Printf("couldn't subsribe to game_logs exchange")
+	}
+
 	for {
 		input := gamelogic.GetInput()
 		if len(input) == 0 {
@@ -69,4 +81,17 @@ func main() {
 	<-sigChan
 
 	log.Println("Peril server gracefully stopped.")
+}
+
+func logHandler() func(gamelog routing.GameLog) pubsub.AckType {
+	return func(gamelog routing.GameLog) pubsub.AckType {
+		defer fmt.Printf("> ")
+
+		err := gamelogic.WriteLog(gamelog)
+		if err != nil {
+			return pubsub.NackRequeue
+		}
+
+		return pubsub.Ack
+	}
 }

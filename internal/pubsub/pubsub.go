@@ -1,7 +1,9 @@
 package pubsub
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 
@@ -21,6 +23,25 @@ func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
 		false,
 		false,
 		amqp.Publishing{ContentType: "application/json", Body: bytes},
+	)
+}
+
+func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
+	var buffer bytes.Buffer
+	encoder := gob.NewEncoder(&buffer)
+
+	err := encoder.Encode(val)
+	if err != nil {
+		return err
+	}
+
+	return ch.PublishWithContext(
+		context.Background(),
+		exchange,
+		key,
+		false,
+		false,
+		amqp.Publishing{ContentType: "application/gob", Body: buffer.Bytes()},
 	)
 }
 
@@ -77,7 +98,6 @@ const (
 	NackDiscard
 )
 
-
 func SubscribeJSON[T any](
 	conn *amqp.Connection,
 	exchange,
@@ -85,6 +105,53 @@ func SubscribeJSON[T any](
 	key string,
 	simpleQueueType queueType,
 	handler func(T) AckType,
+) error {
+	return subscribe(conn, exchange, queueName, key, simpleQueueType, handler, unmarshalJSON)
+}
+
+func SubscribeGOB[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType queueType,
+	handler func(T) AckType,
+) error {
+	return subscribe(conn, exchange, queueName, key, simpleQueueType, handler, unmarshalGOB)
+}
+
+func unmarshalGOB[T any](toUnmarshal []byte) (T, error) {
+	var body T
+	buffer := bytes.NewBuffer(toUnmarshal)
+	decoder := gob.NewDecoder(buffer)
+
+	err := decoder.Decode(&body)
+	if err != nil {
+		return body, err
+	}
+
+	return body, nil
+}
+
+func unmarshalJSON[T any](toUnmarshal []byte) (T, error) {
+	var body T
+
+	err := json.Unmarshal(toUnmarshal, &body)
+	if err != nil {
+		return body, err
+	}
+
+	return body, nil
+}
+
+func subscribe[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType queueType,
+	handler func(T) AckType,
+	unmarshaller func([]byte) (T, error),
 ) error {
 	channel, queue, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
 	if err != nil {
@@ -98,9 +165,7 @@ func SubscribeJSON[T any](
 
 	go func() {
 		for message := range messages {
-			var body T
-
-			err := json.Unmarshal(message.Body, &body)
+			body, err := unmarshaller(message.Body)
 			if err != nil {
 				fmt.Printf("cannot unmarshall delivery message body: %v", err)
 			}
